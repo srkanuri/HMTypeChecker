@@ -2,12 +2,14 @@
 (require racket/set)
 (require racket/dict)
 
+(provide p*-infer)
+
 ; ('equal t1 t2)
 ; ('implicit t1 t2 m)
 ; ('explicit t1 t2)
 
 (define var-cnt 0)
-(define (reset-var-ctr) (set! var-cnt 0))
+(define (reset-var-cnt) (set! var-cnt 0))
 (define (fresh var)
   (set! var-cnt (+ var-cnt 1))
   (gensym var))
@@ -25,7 +27,6 @@
 ; 1
 ; 'int
 ; (-> (t1 t2 tn) tr)
-; ('scheme (q1 q2 qn) t)
 (define type_var? string?)
 (define type_con? symbol?)
 (define (type_fun? type) (and (pair? type) (eq? (car type) '->)))
@@ -33,17 +34,24 @@
   
 ; Bottom up constraint collector: (assumption constraints type)
 (define (infer-types e env)
-  (if (pair? e)
-      (case (car e)
-        [(lambda) (infer_abs e env)]
-        [(let)    (infer_let e env)]
-        [else     (infer_app e env)])
-      (if (symbol? exp)
-          (infer_var exp)
-          (infer_lit exp))))
+   (match e
+	[`(lambda ,x ,b) (infer-abs e env)]
+	[`(let ,vars ,b) (infer-let e env)]
+	[`(,rator . ,rand) (infer-app e env)]
+	[(? symbol?) (infer-var e)]
+	[else (infer-lit e)]))
+ 
+;; (if (pair?  e)
+;;      (case (car e)
+;;        [(lambda) (infer-abs e env)]
+;;        [(let)    (infer-let e env)]
+;;        [else     (infer-app e env)])
+;;      (if (symbol? exp)
+;;          (infer-var exp)
+;;         (infer-lit exp))))
 
 ; [Var]
-(define (infer_var x)
+(define (infer-var x)
   (let ((type (dict-ref environment x #f)))
     (if type
         (list (mutable-set) (mutable-set) type)
@@ -51,14 +59,14 @@
           (list (mutable-set (cons x var)) (mutable-set) var)))))
 
 ; [App]
-(define (infer_app exp monos)
+(define (infer-app exp monos)
   (let ((e1 (car exp))
         (args (cdr exp))
-        (beta (create_fresh_type_variable "app")))
-    (match-define (list a1 c1 t1) (bottom_up e1 monos))
+        (beta (fresh "app")))
+    (match-define (list a1 c1 t1) (infer-types e1 monos))
     (define argtypes
       (for/list [(arg args)]
-        (match-define (list a2 c2 t2) (bottom_up arg monos))
+        (match-define (list a2 c2 t2) (infer-types arg monos))
         (set-union! a1 a2)
         (set-union! c1 c2)
         t2))
@@ -66,14 +74,22 @@
     (list a1 c1 beta)))
 
 ; [Abs]
-(define (infer_abs exp monos)
+(define (infer-abs exp monos)
   (let* ((args (cadr exp))
          (e (caddr exp))
-         (abs (map (lambda (x) (cons x (create_fresh_type_variable "arg"))) args))
+         (abs (map (lambda (x) (cons x (fresh "arg"))) args))
          (bs (map (lambda (ab) (cdr ab)) abs))
          (c (mutable-set))
          (a2 (mutable-set)))
-    (match-define (list a c t) (bottom_up e (set-union monos (list->set args))))
+    (print args)
+    (newline)
+    (print e)
+    (newline)
+    (print abs)
+    (newline)
+    (print bs)
+    (newline)
+    (match-define (list a c t) (infer-types e (set-union monos (list->set args))))
     (set-for-each a (lambda (y)
                       (let ((beta (assoc (car y) abs)))
                         (if beta
@@ -82,12 +98,12 @@
     (list a2 c (list '-> bs t))))
 
 ; [Let]
-(define (infer_let exp monos)
+(define (infer-let exp monos)
   (let ((x (car (caadr exp)))
         (e1 (cadr (caadr exp)))
         (e2 (caddr exp)))
-    (match-define (list a1 c1 t1) (bottom_up e1 monos))
-    (match-define (list a2 c2 t2) (bottom_up e2 monos))
+    (match-define (list a1 c1 t1) (infer-types e1 monos))
+    (match-define (list a2 c2 t2) (infer-types e2 monos))
     (set-union! c1 c2)
     (set-for-each a2 (lambda (a)
                        (if (equal? (car a) x)
@@ -96,13 +112,13 @@
     (list a1 c1 t2)))
 
 ; [Lit]
-(define (infer_lit exp)
+(define (infer-lit exp)
   (list (mutable-set)
         (mutable-set)
-        (cond ((number?  exp) 'int)
-              ((string?  exp) 'string)
-              ((boolean? exp) 'boolean)
-              (else 'unknown))))
+        (cond ((number?  exp) 'Int)
+              ;((string?  exp) 'string)
+              ((boolean? exp) 'Bool)
+              (else 'Unknown))))
 
 
 ;; Solver: list(constraint) -> subsitution
@@ -112,7 +128,7 @@
       (let ((constraint (car constraints)))
         (case (car constraint)
           [(equal)
-           (let ((s (mgu (cadr constraint) (caddr constraint))))
+           (let ((s (unify (cadr constraint) (caddr constraint))))
              (subs-union (solve (sub_constraints s (cdr constraints)))
                          s))]
           [(implicit)
@@ -182,7 +198,7 @@
 ;; instantiate: scheme -> type
 (define (instantiate scheme)
   (match-define (list _ qs type) scheme)
-  (substitute (for/list ([q qs]) (cons q (create_fresh_type_variable "I"))) type))
+  (substitute (for/list ([q qs]) (cons q (fresh "I"))) type))
   
 
 ;; free variables: type -> set
