@@ -19,9 +19,9 @@
   ;;                (number->string var-cnt)))
 
 ;; type environment
-(define (get_primops exp)
-  (cond ((number? exp) 'Int)
-        ((boolean? exp) 'Bool)))
+(define (get_primops e)
+  (cond ((number? e) 'Int)
+        ((boolean? e) 'Bool)))
 
 ;; types
 ; 1
@@ -34,21 +34,22 @@
   
 ; Bottom up constraint collector: (assumption constraints type)
 (define (infer-types e env)
-   (match e
+  (match e
 	[`(lambda ,x ,b) (infer-abs e env)]
 	[`(let ,vars ,b) (infer-let e env)]
 	[`(,rator . ,rand) (infer-app e env)]
 	[(? symbol?) (infer-var e)]
 	[else (infer-lit e)]))
- 
-;; (if (pair?  e)
+
+;;(if (pair?  e)
 ;;      (case (car e)
 ;;        [(lambda) (infer-abs e env)]
 ;;        [(let)    (infer-let e env)]
 ;;        [else     (infer-app e env)])
-;;      (if (symbol? exp)
-;;          (infer-var exp)
-;;         (infer-lit exp))))
+;;    (if (symbol? e)
+;;        (infer-var e)
+;;         (infer-lit e))))
+ 
 
 ; [Var]
 (define (infer-var x)
@@ -81,14 +82,6 @@
          (bs (map (lambda (ab) (cdr ab)) abs))
          (c (mutable-set))
          (a2 (mutable-set)))
-    (print args)
-    (newline)
-    (print e)
-    (newline)
-    (print abs)
-    (newline)
-    (print bs)
-    (newline)
     (match-define (list a c t) (infer-types e (set-union monos (list->set args))))
     (set-for-each a (lambda (y)
                       (let ((beta (assoc (car y) abs)))
@@ -207,7 +200,7 @@
         ((type_fun? t)
          (set-union (list->set (map (lambda (x) (free_vars x)) (cadr t))) (free_vars (caddr t))))
         ((type_con? t) (set))
-        (else (/ 0 1))))
+        (else (/ 1 0))))
 
   
 ;; active variables: constraints -> set(type var)
@@ -243,7 +236,7 @@
          (varbind t1 t2))
         ((type_var? t2)
          (varbind t2 t1))
-        (else (/ 0 1))))
+        (else (/ 1 0))))
 
 (define (varbind var type)
   (cond ((equal? var type) sub_empty)
