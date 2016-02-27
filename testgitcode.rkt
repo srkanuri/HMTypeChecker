@@ -188,7 +188,7 @@
         ((type_fun? t)
          (set-union (list->set (map (lambda (x) (free_vars x)) (cadr t))) (free_vars (caddr t))))
         ((type_con? t) (set))
-        (else (/ 0 0))))
+        (else (/ 0 1))))
 
   
 ;; active variables: constraints -> set(type var)
@@ -224,7 +224,7 @@
          (varbind t1 t2))
         ((type_var? t2)
          (varbind t2 t1))
-        (else (/ 0 0))))
+        (else (/ 0 1))))
 
 (define (varbind var type)
   (cond ((equal? var type) sub_empty)
@@ -276,14 +276,14 @@
                (let ((g (f 2))) g)))
 
 
-(p-infer e1)
-(p-infer e2)
-(p-infer e3)
-(p-infer e4)
-(p-infer e5)
-(p-infer e6)
-(p-infer e7)
-(p-infer e8)
-(p-infer e9)
+(p*-infer e1)
+(p*-infer e2)
+(p*-infer e3)
+(p*-infer e4)
+(p*-infer e5)
+(p*-infer e6)
+(p*-infer e7)
+(p*-infer e8)
+(p*-infer e9)
 (p*-infer e10)
 (p*-infer e11)
