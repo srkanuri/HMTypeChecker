@@ -12,11 +12,10 @@
 (define (reset-var-cnt) (set! var-cnt 0))
 (define (fresh var)
   (set! var-cnt (+ var-cnt 1))
-  (gensym var))
-  ;; (string-append (if (symbol? var)
-  ;;                    (symbol->string var)
-  ;;                    var)
-  ;;                (number->string var-cnt)))
+   (string-append (if (symbol? var)
+                      (symbol->string var)
+                      var)
+                  (number->string var-cnt)))
 
 ;; type environment
 (define (get_primops e)
@@ -41,15 +40,6 @@
 	[(? symbol?) (infer-var e)]
 	[else (infer-lit e)]))
 
-;;(if (pair?  e)
-;;      (case (car e)
-;;        [(lambda) (infer-abs e env)]
-;;        [(let)    (infer-let e env)]
-;;        [else     (infer-app e env)])
-;;    (if (symbol? e)
-;;        (infer-var e)
-;;         (infer-lit e))))
- 
 
 ; [Var]
 (define (infer-var x)
@@ -221,8 +211,12 @@
 ;; most general unifier: type -> type -> substitution
 (define (unify t1 t2)
   (cond ((and (pair? t1) (pair? t2))
-      (match-let* (((list _ t1params t1r) t1)
-                   ((list _ t2params t2r) t2))
+      (match-let* (((list _ t1pars) t1)
+                   ((t1params (take t1pars (length t1pars))))
+                   ((t1r (car (take-right t1pars 1))))
+                   ((list _ t2pars) t2)
+                   ((t2params (take t2pars (length t2pars))))
+                   ((t2r (car (take-right t2pars 1)))))
         (if (not (eq? (length t1params) (length t2params)))
             (raise "incompatible arguments")
             (let ((s (for/fold ([s sub_empty])
@@ -236,7 +230,7 @@
          (varbind t1 t2))
         ((type_var? t2)
          (varbind t2 t1))
-        (else (/ 1 0))))
+        (else (error (format "Can't Unify t1: ~s and t2: ~s" t1 t2)))))
 
 (define (varbind var type)
   (cond ((equal? var type) sub_empty)
@@ -246,15 +240,16 @@
          
     
 (define environment
-  '((+ . (-> (int int) int))
-    (- . (-> (int int) int))
-    (* . (-> (int int) int))
-    (/ . (-> (int int) int))
-    (< . (-> (int int) boolean))
-    (= . (-> (int int) boolean))))
+  '((+ . (-> Int Int Int))
+    (- . (-> Int Int Int))
+    (* . (-> Int Int Int))
+    (/ . (-> Int Int Int))
+    (< . (-> Int Int Bool))
+    (= . (-> Int Int Bool))))
 
 (define (infer e)
   (match-define (list assumptions constraints type) (infer-types e (set)))
+  ;(print (list assumptions constraints type))
   (list assumptions constraints type (solve (set->list constraints))))
 
 (define (p-infer exp)
@@ -271,3 +266,29 @@
   (for ([s substitutions])
     (displayln s))
   (displayln "-----------------------------------------------------------------"))
+
+(define e1 'x)
+(define e2 '(lambda (x) x))
+(define e3 '(x 2))
+(define e4 '((lambda (x) x) 2))
+(define e5 '(let ((x 2)) x))
+(define e6 '(let ((x 2)) (+ x x)))
+(define e7 '(lambda (x) (let ((x 2)) x)))
+(define e8 '(lambda (x) (let ((x 2)) (+ x x))))
+(define e9 '(lambda (x y) (let ((x 2)) (+ x x))))
+(define e10 '(let ((x (lambda (x y) (let ((x 2)) (+ x x))))) (x "foo" "bar")))
+(define e11 '(let ((f (lambda (x) (lambda (y) (+ x 1)))))
+               (let ((g (f 2))) g)))
+
+
+(p*-infer e1)
+(p*-infer e2)
+(p*-infer e3)
+(p*-infer e4)
+(p*-infer e5)
+(p*-infer e6)
+(p*-infer e7)
+(p*-infer e8)
+(p*-infer e9)
+(p*-infer e10)
+(p*-infer e11)
