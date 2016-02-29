@@ -28,7 +28,12 @@
 ; (-> (t1 t2 tn) tr)
 (define type_var? string?)
 (define type_con? symbol?)
-(define (type_fun? type) (and (pair? type) (eq? (car type) '->)))
+(define (type_fun? type)
+  (match type
+    [`(-> . ,t1) #t]
+    [else #f])
+  ;;(and (pair? type) (eq? (car type) '->))
+  )
 ;;(define (type_scheme? type) (and (pair? type) (eq? (car type) 'scheme)))
   
 ; Bottom up constraint collector: (assumption constraints type)
@@ -53,7 +58,7 @@
 (define (infer-app exp monos)
   (let ((e1 (car exp))
         (args (cdr exp))
-        (beta (fresh "app")))
+        (typevar (fresh "app")))
     (match-define (list a1 c1 t1) (infer-types e1 monos))
     (define argtypes
       (for/list [(arg args)]
@@ -61,8 +66,8 @@
         (set-union! a1 a2)
         (set-union! c1 c2)
         t2))
-    (set-union! c1 (set (list 'equal t1 (list '-> argtypes beta))))
-    (list a1 c1 beta)))
+    (set-union! c1 (set `(equal ,t1 (-> ,@argtypes ,typevar))))
+    (list a1 c1 typevar)))
 
 ; [Abs]
 (define (infer-abs exp monos)
@@ -78,7 +83,7 @@
                         (if beta
                             (set-add! c (list 'equal (cdr y) (cdr beta)))
                             (set-add! a2 y)))))
-    (list a2 c (list '-> bs t))))
+    (list a2 c `(-> ,@bs ,t))))
 
 ; [Let]
 (define (infer-let exp monos)
@@ -107,7 +112,7 @@
 ;; Solver: list(constraint) -> subsitution
 (define (solve constraints)
   (if (empty? constraints)
-      sub_empty
+      '()
       (let ((constraint (car constraints)))
         (case (car constraint)
           [(equal)
@@ -115,6 +120,7 @@
              (subs-union (solve (sub_constraints s (cdr constraints)))
                          s))]
           [(implicit)
+           ;(print constraint)
            (match-define (list _ t1 t2 monos) constraint)
            (if (set-empty? (set-intersect (set-subtract (free_vars t2)
                                                          monos)
@@ -140,19 +146,23 @@
                      (set! s (dict-set s v t))))
     s))
 
-
-(define sub_empty '())
-
 ;; type -> substitution -> type
 (define (substitute s type)
-  (cond ((type_con? type)
-         type)
-        ((type_var? type)
-         (dict-ref s type type))
-        ((type_fun? type)
-         (list '->
-               (map (lambda (x) (substitute s x)) (cadr type))
-               (substitute s (caddr type))))
+  ;; (print type)
+  ;; (newline)
+  ;; (print s)
+  ;; (newline)
+  ;; (newline)
+  (cond ((type_con? type) type)
+        ((type_var? type) (dict-ref s type type))
+        ((type_fun? type) (let ([intypes (take (cdr type) (sub1 (length (cdr type))))]
+                                [rettype (car (take-right (cdr type) 1))])
+                           ;; (print intypes)
+                           ;; (print rettype)
+                           ;; (newline)
+                            `(->
+                                  ,@(map (lambda (x) (substitute s x)) intypes)
+                                  ,(substitute s rettype))))
         (else (raise (string-append "unknown type: " type)))))
 
 ;;  substitution -> constraint -> constraint
@@ -162,13 +172,13 @@
                    (substitute s (cadr constraint))
                    (substitute s (caddr constraint)))]
     [(implicit) (list 'implicit
-                               (substitute s (cadr constraint))
-                               (substitute s (caddr constraint))
-                               (for/set ([var (cadddr constraint)])
-                                 (dict-ref s var var)))]
+                      (substitute s (cadr constraint))
+                      (substitute s (caddr constraint))
+                      (for/set ([var (cadddr constraint)])
+                        (dict-ref s var var)))]
     [(explicit) (list 'explicit
-                               (substitute s (cadr constraint))
-                               (substitute s (caddr constraint)))]))
+                      (substitute s (cadr constraint))
+                      (substitute s (caddr constraint)))]))
  
 ;; substitution -> list(constraint) -> list(constraint)
 (define (sub_constraints s constraints)
@@ -188,16 +198,21 @@
 (define (free_vars t)
   (cond ((type_var? t) (set t)) 
         ((type_fun? t)
-         (set-union (list->set (map (lambda (x) (free_vars x)) (cadr t))) (free_vars (caddr t))))
-        ((type_con? t) (set))
-        (else (/ 1 0))))
+         (let ([intypes (take (cdr t) (length (cdr t)))]
+               [rettype (car (take-right (cdr t) 1))])
+           (set-union (list->set (map (lambda (x) (free_vars x)) intypes))
+                      (free_vars rettype))))
+         ((type_con? t) (set))
+         (else (error (format "No match clause for ~s" t)))))
 
   
 ;; active variables: constraints -> set(type var)
 (define (active_vars constraints)
+  ;(print constraints)
   (foldl (lambda (constraint nxt)
                      (case (car constraint)
-                       [(equal) (set-union (set-union (free_vars (cadr constraint)) (free_vars (caddr constraint)))
+                       [(equal) (set-union (set-union (free_vars (cadr constraint))
+                                                      (free_vars (caddr constraint)))
                                            nxt)]
                        [(implicit) (set-union (set-union (free_vars (cadr constraint))
                                                          (set-intersect (cadddr constraint)
@@ -208,24 +223,24 @@
                                               nxt)]))
        (set) constraints))
 
-;; most general unifier: type -> type -> substitution
+
 (define (unify t1 t2)
   (cond ((and (pair? t1) (pair? t2))
-      (match-let* (((list _ t1pars) t1)
-                   ((t1params (take t1pars (length t1pars))))
-                   ((t1r (car (take-right t1pars 1))))
-                   ((list _ t2pars) t2)
-                   ((t2params (take t2pars (length t2pars))))
-                   ((t2r (car (take-right t2pars 1)))))
+      (match-let* ((`(,_ . ,t1pars) t1)
+                   (t1params (take t1pars (length t1pars)))
+                   (t1r (car (take-right t1pars 1)))
+                   (`(,_ . ,t2pars) t2)
+                   (t2params (take t2pars (length t2pars)))
+                   (t2r (car (take-right t2pars 1))))
         (if (not (eq? (length t1params) (length t2params)))
             (raise "incompatible arguments")
-            (let ((s (for/fold ([s sub_empty])
+            (let ((s (for/fold ([s '()])
                                ([p1 t1params] [p2 t2params])
                        (set-union (unify (substitute s p1) (substitute s p2))
                                   s))))
               (set-union (unify (substitute s t1r) (substitute s t2r))
                          s)))))
-        ((equal? t1 t2) sub_empty)
+        ((equal? t1 t2) '())
         ((type_var? t1)
          (varbind t1 t2))
         ((type_var? t2)
@@ -233,7 +248,8 @@
         (else (error (format "Can't Unify t1: ~s and t2: ~s" t1 t2)))))
 
 (define (varbind var type)
-  (cond ((equal? var type) sub_empty)
+  ;(print type)
+  (cond ((equal? var type) '())
         ((set-member? (free_vars type) var) (list 'infinite-type var type))
         (else (list (cons var type)))))
       
@@ -250,6 +266,8 @@
 (define (infer e)
   (match-define (list assumptions constraints type) (infer-types e (set)))
   ;(print (list assumptions constraints type))
+  ;(print "Infer types done")
+  (newline)
   (list assumptions constraints type (solve (set->list constraints))))
 
 (define (p-infer exp)
